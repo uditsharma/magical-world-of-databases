@@ -34,6 +34,9 @@ bin/
 /dist/
 /nbdist/
 /.nb-gradle/
+/scripts/flame-graph/flamegraphs/*
+/scripts/async-profiler/
+
 
 ### VS Code ###
 .vscode/
