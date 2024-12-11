@@ -46,6 +46,7 @@ services:
     container_name: grafana
     networks:
       - monitoring
+      - redis-net
     image: grafana/grafana:latest
     ports:
       - "3000:3000"
