@@ -4,6 +4,8 @@ version: '3'
 services:
   victoriametrics:
     container_name: victoriametrics
+    networks:
+      - monitoring
     image: victoriametrics/victoria-metrics:latest
     ports:
       - "8090:8090"
@@ -24,6 +26,9 @@ services:
 
   vmagent:
     container_name: vmagent
+    networks:
+      - monitoring
+      - redis-net
     image: victoriametrics/vmagent:latest
     depends_on:
       - victoriametrics
@@ -32,14 +37,15 @@ services:
     volumes:
       - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
       - vmagent-data:/vmagentdata
-    network_mode: "host"
     command:
       - '--promscrape.config=/etc/prometheus/prometheus.yml'
-      - '--remoteWrite.url=http://localhost:8090/api/v1/write'
+      - '--remoteWrite.url=http://victoriametrics:8090/api/v1/write'
       - '--httpListenAddr=:8091'
 
   grafana:
     container_name: grafana
+    networks:
+      - monitoring
     image: grafana/grafana:latest
     ports:
       - "3000:3000"
@@ -50,6 +56,13 @@ services:
       - grafana-data:/var/lib/grafana
     depends_on:
       - victoriametrics
+
+networks:
+  monitoring:
+    driver: bridge
+    name: monitoring
+  redis-net:
+    external: true
 
 volumes:
   victoria-metrics-data:

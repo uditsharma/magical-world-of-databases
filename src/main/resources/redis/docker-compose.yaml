@@ -1,0 +1,32 @@
+version: '3'
+
+services:
+  redis:
+    image: redis:${REDIS_VERSION:-7.2}
+    container_name: redis-instance
+    command: redis-server /usr/local/etc/redis/redis.conf
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - ./redis.conf:/usr/local/etc/redis/redis.conf
+    networks:
+      - redis-net
+    restart: unless-stopped
+
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: redis-exporter
+    ports:
+      - "${METRICS_PORT:-9121}:9121"
+    environment:
+      - REDIS_ADDR=redis://${REDIS_HOST:-redis}:${REDIS_PORT:-6379}
+    networks:
+      - redis-net
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+networks:
+  redis-net:
+    name: redis-net
+    driver: bridge
