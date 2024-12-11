@@ -1,0 +1,57 @@
+# docker-compose.yml
+version: '3'
+
+services:
+  victoriametrics:
+    container_name: victoriametrics
+    image: victoriametrics/victoria-metrics:latest
+    ports:
+      - "8090:8090"
+      - "8089:8089"
+      - "8089:8089/udp"
+      - "2003:2003"
+      - "2003:2003/udp"
+      - "4242:4242"
+    volumes:
+      - victoria-metrics-data:/victoria-metrics-data
+    command:
+      - '--storageDataPath=/victoria-metrics-data'
+      - '--httpListenAddr=:8090'
+      - '--retentionPeriod=1'
+      - '--graphiteListenAddr=:2003'
+      - '--opentsdbListenAddr=:4242'
+      - '--influxListenAddr=:8089'
+
+  vmagent:
+    container_name: vmagent
+    image: victoriametrics/vmagent:latest
+    depends_on:
+      - victoriametrics
+    ports:
+      - "8091:8091"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+      - vmagent-data:/vmagentdata
+    network_mode: "host"
+    command:
+      - '--promscrape.config=/etc/prometheus/prometheus.yml'
+      - '--remoteWrite.url=http://localhost:8090/api/v1/write'
+      - '--httpListenAddr=:8091'
+
+  grafana:
+    container_name: grafana
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - victoriametrics
+
+volumes:
+  victoria-metrics-data:
+  grafana-data:
+  vmagent-data:
