@@ -17,3 +17,10 @@ scrape_configs:
     metrics_path: '/metrics'
     scrape_interval: 10s
     scrape_timeout: 5s
+
+  - job_name: 'uber-query'
+    static_configs:
+      - targets: ['host.docker.internal:9404']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s

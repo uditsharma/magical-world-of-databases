@@ -13,6 +13,7 @@ dependencies {
     testImplementation(platform("org.junit:junit-bom:5.10.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     implementation 'commons-codec:commons-codec:1.16.0'
+    implementation 'org.redisson:redisson:3.16.7'
 }
 
 tasks.test {

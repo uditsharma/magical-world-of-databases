@@ -6,14 +6,24 @@ REDIS_PORT="6379"
 CONTAINER_NAME="redis-instance"
 CONNECTION_METHOD="direct"
 DEFAULT_TOP_COUNT=10
+DEFAULT_DB=0
+CURRENT_DB=0
 
-# Function to execute Redis command
+# Function to execute Redis command with database selection
 exec_redis_cmd() {
+    local db="${CURRENT_DB:-0}"
     if [ "$CONNECTION_METHOD" = "docker" ]; then
-        docker exec $CONTAINER_NAME redis-cli "$@"
+        # For Docker, we need to ensure DB selection happens in the same command
+        docker exec $CONTAINER_NAME redis-cli -n "$db" "$@"
     else
-        redis-cli -h $REDIS_HOST -p $REDIS_PORT "$@"
+        # For direct connection, we need to ensure DB selection happens in the same command
+        redis-cli -h $REDIS_HOST -p $REDIS_PORT -n "$db" "$@"
     fi
+}
+
+# Function to set the current database
+set_current_db() {
+    CURRENT_DB=$1
 }
 
 # Function to convert bytes to human readable format
@@ -50,16 +60,19 @@ calculate_average() {
 
 analyze_hash() {
     local hash_key=$1
-    local db=$2
+    local db=${2:-$DEFAULT_DB}
+
+    # Set the current database
+    set_current_db "$db"
 
     # Check if the key exists and is a hash
     local type=$(exec_redis_cmd TYPE "$hash_key")
     if [ "$type" != "hash" ]; then
-        echo "Error: '$hash_key' is not a hash or doesn't exist"
+        echo "Error: '$hash_key' is not a hash or doesn't exist in database $db"
         return 1
     fi
 
-    echo "Analyzing Hash: $hash_key"
+    echo "Analyzing Hash: $hash_key in Database: $db"
     echo "------------------------"
 
     # Get number of fields
@@ -147,16 +160,14 @@ analyze_hash() {
 }
 
 get_top_keys() {
-    local db=$1
+    local db=${1:-$DEFAULT_DB}
     local count=$2
+
+    # Set the current database
+    set_current_db "$db"
+
     echo "Top $count Largest Keys in Database $db:"
     echo "------------------------"
-
-    # Select the database
-    if ! exec_redis_cmd SELECT $db > /dev/null 2>&1; then
-        echo "Error: Database $db does not exist or connection failed"
-        return 1
-    fi
 
     # Create temporary file for storing key sizes
     local temp_file=$(mktemp)
@@ -185,14 +196,12 @@ get_top_keys() {
 }
 
 get_db_size() {
-    local db=$1
-    echo "Analyzing Database $db:"
+    local db=${1:-$DEFAULT_DB}
 
-    # Select the database
-    if ! exec_redis_cmd SELECT $db > /dev/null 2>&1; then
-        echo "Error: Database $db does not exist or connection failed"
-        return 1
-    fi
+    # Set the current database
+    set_current_db "$db"
+
+    echo "Analyzing Database $db:"
 
     # Get total number of keys
     local keys=$(exec_redis_cmd DBSIZE)
@@ -226,27 +235,81 @@ get_db_size() {
     echo "------------------------"
 }
 
+# Function to flush database(s)
+flush_database() {
+    local db=$1
+    local force=$2
+
+    # Function to perform the actual flush
+    do_flush() {
+        local db=$1
+        if [ -z "$db" ]; then
+            echo "Flushing ALL databases..."
+            if exec_redis_cmd FLUSHALL; then
+                echo "Successfully flushed all databases"
+            else
+                echo "Error: Failed to flush all databases"
+                return 1
+            fi
+        else
+            set_current_db "$db"
+            echo "Flushing database $db..."
+            if exec_redis_cmd FLUSHDB; then
+                echo "Successfully flushed database $db"
+            else
+                echo "Error: Failed to flush database $db"
+                return 1
+            fi
+        fi
+    }
+
+    # If not forced, ask for confirmation
+    if [ "$force" != "true" ]; then
+        local confirm
+        if [ -z "$db" ]; then
+            echo -n "Are you sure you want to flush ALL databases? This cannot be undone! (yes/no): "
+        else
+            echo -n "Are you sure you want to flush database $db? This cannot be undone! (yes/no): "
+        fi
+        read confirm
+        if [ "$confirm" != "yes" ]; then
+            echo "Operation cancelled"
+            return 1
+        fi
+    fi
+
+    do_flush "$db"
+}
+
 show_usage() {
-    echo "Usage: $0 [-d|--docker] [-t|--top [count]] [-a|--analyze hash_key] [db_number]"
+    echo "Usage: $0 [-d|--docker] [-t|--top [count]] [-a|--analyze hash_key] [-f|--flush [db_number]] [db_number]"
     echo "Options:"
     echo "  -d, --docker         Use Docker container connection"
     echo "  -t, --top [N]        Show top N largest keys (default: $DEFAULT_TOP_COUNT)"
     echo "  -a, --analyze KEY    Analyze specific hash key"
+    echo "  -f, --flush [N]      Flush database N (or all if N not specified)"
+    echo "  --force             Skip confirmation for flush operations"
     echo "  -h, --help           Show this help message"
     echo
     echo "Examples:"
-    echo "  $0                   # Show general DB stats (0-2)"
+    echo "  $0                   # Show general DB stats (default DB: $DEFAULT_DB)"
     echo "  $0 -d                # Show general DB stats using Docker"
     echo "  $0 -t 20             # Show top 20 keys"
     echo "  $0 -a myhash         # Analyze hash 'myhash'"
-    echo "  $0 -d -a myhash 1    # Analyze hash 'myhash' in DB 1 using Docker"
+    echo "  $0 -a myhash 1       # Analyze hash 'myhash' in DB 1"
+    echo "  $0 -f 1              # Flush database 1"
+    echo "  $0 -f                # Flush all databases"
+    echo "  $0 -f 1 --force      # Force flush database 1 without confirmation"
 }
 
 # Initialize variables
 SHOW_TOP=false
 TOP_COUNT=$DEFAULT_TOP_COUNT
 ANALYZE_HASH=""
-DB_NUMBER=0
+DB_NUMBER=""
+FLUSH_MODE=false
+FLUSH_DB=""
+FORCE_FLUSH=false
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -273,6 +336,18 @@ while [[ $# -gt 0 ]]; do
                 show_usage
                 exit 1
             fi
+            ;;
+        -f|--flush)
+            FLUSH_MODE=true
+            shift
+            if [[ $# -gt 0 ]] && is_number "$1"; then
+                FLUSH_DB="$1"
+                shift
+            fi
+            ;;
+        --force)
+            FORCE_FLUSH=true
+            shift
             ;;
         -h|--help)
             show_usage
@@ -305,27 +380,36 @@ else
 fi
 
 # Execute requested operation
-if [ ! -z "$ANALYZE_HASH" ]; then
+if [ "$FLUSH_MODE" = true ]; then
+    # Flush operation takes precedence
+    if [ ! -z "$FLUSH_DB" ]; then
+        set_current_db "$FLUSH_DB"
+    fi
+    flush_database "$FLUSH_DB" "$FORCE_FLUSH"
+elif [ ! -z "$ANALYZE_HASH" ]; then
     # Analyze specific hash
+    if [ ! -z "$DB_NUMBER" ]; then
+        set_current_db "$DB_NUMBER"
+    fi
     analyze_hash "$ANALYZE_HASH" "$DB_NUMBER"
 elif [ "$SHOW_TOP" = true ]; then
     # Show top keys
     if [ ! -z "$DB_NUMBER" ]; then
+        set_current_db "$DB_NUMBER"
         get_db_size "$DB_NUMBER"
         get_top_keys "$DB_NUMBER" "$TOP_COUNT"
     else
-        for db in {0..2}; do
-            get_db_size $db
-            get_top_keys $db "$TOP_COUNT"
-        done
+        set_current_db "$DEFAULT_DB"
+        get_db_size "$DEFAULT_DB"
+        get_top_keys "$DEFAULT_DB" "$TOP_COUNT"
     fi
 else
     # Show general DB stats
     if [ ! -z "$DB_NUMBER" ]; then
+        set_current_db "$DB_NUMBER"
         get_db_size "$DB_NUMBER"
     else
-        for db in {0..2}; do
-            get_db_size $db
-        done
+        set_current_db "$DEFAULT_DB"
+        get_db_size "$DEFAULT_DB"
     fi
 fi

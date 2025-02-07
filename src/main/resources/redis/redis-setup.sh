@@ -15,11 +15,26 @@ list_versions() {
 
 # Function to check if a port is in use
 is_port_in_use() {
-    if lsof -i ":$1" >/dev/null 2>&1; then
-        return 0  # Port is in use
+    local port=$1
+
+    # Try netstat first
+    if command -v netstat >/dev/null 2>&1; then
+        if netstat -tuln | grep -q ":${port} "; then
+            return 0  # Port is in use
+        fi
+    # Fallback to ss if netstat is not available
+    elif command -v ss >/dev/null 2>&1; then
+        if ss -tuln | grep -q ":${port} "; then
+            return 0  # Port is in use
+        fi
+    # Last resort - try TCP connection
     else
-        return 1  # Port is available
+        if (echo > /dev/tcp/localhost/${port}) >/dev/null 2>&1; then
+            return 0  # Port is in use
+        fi
     fi
+
+    return 1  # Port is available
 }
 
 # Function to find next available port
@@ -29,6 +44,7 @@ find_available_port() {
         echo "Port $port is in use, trying next port..."  >&2
         port=$((port + 1))
     done
+    echo "Port $port will be used to start the redis ..."  >&2
     printf "%d" "$port"  # Return only the number without any extra text
 }
 
