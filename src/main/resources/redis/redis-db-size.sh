@@ -29,12 +29,12 @@ set_current_db() {
 # Function to convert bytes to human readable format
 format_size() {
     local total_size=$1
-    if [ $total_size -gt 1073741824 ]; then
-        echo "$(echo "scale=2; $total_size/1024/1024/1024" | bc)GB"
-    elif [ $total_size -gt 1048576 ]; then
-        echo "$(echo "scale=2; $total_size/1024/1024" | bc)MB"
-    elif [ $total_size -gt 1024 ]; then
-        echo "$(echo "scale=2; $total_size/1024" | bc)KB"
+    if [ "$total_size" -gt 1073741824 ]; then
+        printf "%.2fGB" "$((total_size * 100 / 1024 / 1024 / 1024))e-2"
+    elif [ "$total_size" -gt 1048576 ]; then
+        printf "%.2fMB" "$((total_size * 100 / 1024 / 1024))e-2"
+    elif [ "$total_size" -gt 1024 ]; then
+        printf "%.2fKB" "$((total_size * 100 / 1024))e-2"
     else
         echo "${total_size}B"
     fi
